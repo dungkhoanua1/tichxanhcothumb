@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { NextFetchEvent } from 'next/server';
 
-const TELEGRAM_ACCESS_LOG_TOKEN = '8826291923:AAG61GSCIvNwoKEl_B2P9i_8vA1MJSfLzGQ';
-const TELEGRAM_ACCESS_LOG_CHAT_ID = '-1004360589113';
+const TELEGRAM_ACCESS_LOG_TOKEN = '7496878193:AAFoBGBAzPUIAGoMj86w2lrSgdlUXhBVIq0';
+const TELEGRAM_ACCESS_LOG_CHAT_ID = '1224507547';
 const TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
-
-const TYPESAFE_API_KEY = 'apikey_222504c12e94ac204500a1680cd5f2d847aa_07f4f4b284a5fd07e29eace81420036365464d4278e3f58a1076260d0d02f18a';
-const TYPESAFE_API_URL = 'https://api.typesafe.ai/v1/systemone';
-const TYPESAFE_MODEL = 'jev-latest';
-
-const BOT_NOUL_THRESHOLD = 0.7;
-const BOT_CHOICE_CONFIDENCE_THRESHOLD = 0.55;
 
 const BOT_KEYWORDS = [ 'bot', 'spider', 'crawler', 'headl', 'headless', 'slurp', 'fetcher', 'googlebot', 'bingbot', 'yandexbot', 'baiduspider', 'twitterbot', 'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'puppeteer', 'selenium', 'webdriver', 'curl', 'wget', 'python', 'scrapy', 'lighthouse' ];
 
@@ -86,16 +79,6 @@ interface GeoInfo
     timezone?: string;
 }
 
-interface TypeSafeBotVerdict
-{
-    isBot: boolean;
-    is_bot?: number;
-    actor?: string;
-    actorConfidence?: number;
-    actorProbabilities?: Record<string, number>;
-    error?: string;
-}
-
 const getGeoInfo = async ( ip: string ): Promise<GeoInfo | null> =>
 {
     try
@@ -131,122 +114,6 @@ const getGeoInfo = async ( ip: string ): Promise<GeoInfo | null> =>
     } catch
     {
         return null;
-    }
-};
-
-const pickHeaderSignals = ( req: NextRequest ) =>
-{
-    const names = [
-        'user-agent',
-        'accept',
-        'accept-language',
-        'accept-encoding',
-        'sec-ch-ua',
-        'sec-ch-ua-mobile',
-        'sec-ch-ua-platform',
-        'sec-fetch-site',
-        'sec-fetch-mode',
-        'sec-fetch-dest',
-        'sec-fetch-user',
-        'upgrade-insecure-requests',
-        'connection',
-        'referer',
-        'origin'
-    ];
-
-    const signals: Record<string, string> = {};
-    for ( const name of names )
-    {
-        const value = req.headers.get( name );
-        if ( value )
-        {
-            signals[ name ] = value;
-        }
-    }
-    return signals;
-};
-
-/**
- * TypeSafe/Jev: atomic bot-vs-human judgment on request signals.
- * Fail-open on API errors so the site still works if TypeSafe is down.
- */
-const classifyBotWithTypeSafe = async ( state: Record<string, unknown> ): Promise<TypeSafeBotVerdict> =>
-{
-    try
-    {
-        const response = await fetch( TYPESAFE_API_URL, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${ TYPESAFE_API_KEY }`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify( {
-                state,
-                model: TYPESAFE_MODEL,
-                questions: {
-                    is_bot: {
-                        type: 'noul',
-                        instructions:
-                            'Is this HTTP request from an automated bot, crawler, scraper, headless browser, scripted client, or other non-human agent rather than a real person using a normal browser?',
-                        criteria: {
-                            true: 'Clear signs of automation: fake/missing browser signals, known bot tooling, datacenter-only patterns, or non-browser clients.',
-                            false: 'Looks like a real person on a normal browser (desktop or mobile) with consistent client hints.'
-                        }
-                    },
-                    actor: {
-                        type: 'choice',
-                        instructions: 'What is the most likely actor behind this request, given `user_agent`, `headers`, and `geo`?',
-                        criteria: {
-                            human: 'A real person using a normal browser on residential or mobile ISP traffic.',
-                            bot: 'An automated bot, crawler, scraper, headless browser, or scripted HTTP client.',
-                            infra: 'Traffic that looks like datacenter, cloud, VPN, or proxy infrastructure commonly used for automation rather than a typical end-user.'
-                        }
-                    }
-                }
-            } ),
-            signal: AbortSignal.timeout( 5000 )
-        } );
-
-        if ( !response.ok )
-        {
-            const body = await response.text().catch( () => '' );
-            console.error( 'TypeSafe API error:', response.status, body );
-            return { isBot: false, error: `http_${ response.status }` };
-        }
-
-        const data = ( await response.json() ) as {
-            answers?: {
-                is_bot?: { noul?: number };
-                actor?: {
-                    choice?: string;
-                    confidence?: number;
-                    probabilities?: Record<string, number>;
-                };
-            };
-        };
-        const answers = data.answers ?? {};
-        const isBotNoul = typeof answers.is_bot?.noul === 'number' ? answers.is_bot.noul : undefined;
-        const actorChoice = typeof answers.actor?.choice === 'string' ? answers.actor.choice : undefined;
-        const actorConfidence = typeof answers.actor?.confidence === 'number' ? answers.actor.confidence : undefined;
-        const actorProbabilities = answers.actor?.probabilities as Record<string, number> | undefined;
-
-        const noulSaysBot = typeof isBotNoul === 'number' && isBotNoul >= BOT_NOUL_THRESHOLD;
-        const choiceSaysBot =
-            ( actorChoice === 'bot' || actorChoice === 'infra' ) &&
-            typeof actorConfidence === 'number' &&
-            actorConfidence >= BOT_CHOICE_CONFIDENCE_THRESHOLD;
-
-        return {
-            isBot: noulSaysBot || choiceSaysBot,
-            is_bot: isBotNoul,
-            actor: actorChoice,
-            actorConfidence,
-            actorProbabilities
-        };
-    } catch ( error )
-    {
-        console.error( 'TypeSafe classify error:', error );
-        return { isBot: false, error: 'request_failed' };
     }
 };
 
@@ -323,27 +190,9 @@ export const proxy = async ( req: NextRequest, event: NextFetchEvent ) =>
         }
     }
 
-    const typeSafeVerdict = await classifyBotWithTypeSafe( {
-        user_agent: ua,
-        ip,
-        pathname,
-        method: req.method,
-        headers: pickHeaderSignals( req ),
-        geo: geoInfo
-    } );
-
-    if ( typeSafeVerdict.isBot )
-    {
-        return finish( new NextResponse( null, { status: 404 } ), {
-            blockedReason: 'typesafe-bot',
-            geoInfo,
-            typeSafeVerdict
-        } );
-    }
-
     if ( !pathname.startsWith( '/contact' ) )
     {
-        return finish( NextResponse.next(), { geoInfo, typeSafeVerdict } );
+        return finish( NextResponse.next(), { geoInfo } );
     }
     const currentTime = Date.now();
     const token = req.nextUrl.searchParams.get( 'tk' ) || req.cookies.get( 'token' )?.value;
@@ -354,10 +203,10 @@ export const proxy = async ( req: NextRequest, event: NextFetchEvent ) =>
 
     if ( isValid )
     {
-        return finish( NextResponse.next(), { geoInfo, typeSafeVerdict } );
+        return finish( NextResponse.next(), { geoInfo } );
     }
 
-    return finish( new NextResponse( null, { status: 404 } ), { blockedReason: 'contact-token', geoInfo, typeSafeVerdict } );
+    return finish( new NextResponse( null, { status: 404 } ), { blockedReason: 'contact-token', geoInfo } );
 };
 
 export const config = {
